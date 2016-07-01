@@ -1,0 +1,281 @@
+---
+title: "Aido Data"
+author: "DFoly"
+date: "June 30, 2016"
+output: pdf_document
+---
+We want to predict whether or not there will be 
+fraud based on the variables in the Data.
+
+# Initial Data Exploration
+
+```{r}
+Data <- read.csv("C:/Users/dfoley/Dropbox/Aido/Data_Presentation/Fraud_data.csv")
+Data <- read.csv("~/Dropbox/Aido/Data_Presentation/Fraud_data.csv")
+summary(Data)
+library(ggplot2)
+```
+Lets start off with an inital exploration of the  
+data to see what variables may impact fraud
+
+```{r}
+cor(Data[,unlist(lapply(Data, is.numeric))], Data$FRAUD)
+```
+
+A few variables look to be correlated with FRAUD  
+In particular:  
+* MEANS_FROM_EMP  
+* DELAY   
+* NO_DEP   
+* FUEL_AMOUNT  
+* MED_ASSESSMENT   
+* MED_CONDITION_SATISFIED   
+
+No other variables appear to have any strong correlation  
+
+
+```{r}
+table(Data$FRAUD, Data$SEX)
+ggplot(Data, aes(x = as.factor(SEX), fill=factor(FRAUD)))+geom_bar()
+```
+
+About 49% of Males and Females commit fraud
+
+
+```{r}
+ggplot(Data, aes(x = AGE_YEARS, fill = factor(FRAUD))) + geom_bar()
+  
+ggplot(Data, aes(x = WEEKLY_RATE, fill = as.factor(FRAUD))) + 
+  geom_bar(stat = 'count', position = 'dodge')
+```
+
+The level of fraud doesnt seem to be particularly   
+more prevalent 
+in any age group or at any WEEKLY_RATE.
+
+```{r}
+ggplot(Data, aes(x = factor(FRAUD), y =  MEANS_FROM_EMP)) +
+  geom_boxplot() + geom_hline(aes(yintercept = mean(MEANS_FROM_EMP)), 
+                              linetype = 'dashed', lwd = 2)
+```
+
+clearly more likely to commit fraud if below the mean value   
+of MEAN_FROM_EMP
+
+
+```{r}
+ggplot(Data, aes(x =  DELAY, fill = factor(FRAUD))) + geom_bar()
+```
+
+As delay increases there are increasingly higher proportion of FRAUDS
+
+```{r}
+ggplot(Data, aes(x = FUEL_AMOUNT, fill = factor(FRAUD))) + geom_bar()
+```
+
+There is also perhaps some relevant information we can use here  
+especially at higher fuel levels.
+
+```{r}
+ggplot(Data, aes(x = MED_ASSESSMENT, fill = factor(FRAUD))) + geom_bar()
+```
+
+If you score one in medical assesment there is a lower chance you will  
+commit FRAUD.
+
+```{r}
+ggplot(Data, aes(x = factor(MED_CONDITION_SATISFIED), fill = factor(FRAUD))) + geom_bar()
+```
+
+Assuming 1 is having satisfied medical condition, you are less likely  
+to commit fraud.
+
+```{r}
+ggplot(Data, aes(x =  factor(NO_DEP), fill = factor(FRAUD))) + geom_bar()
+```
+
+
+
+# Data Cleaning  
+
+
+Check pattern of missing values using Amelia package
+```{r}
+library(Amelia)
+missmap(Data, main="Fraud Data missing values", 
+        col=c("blue", "red"), legend=FALSE)
+```
+
+It doesnt look like there is any data missing from the variables we  
+are going to be working with  
+NO_DEP and DELAY have zero values so we should inspect them to see  
+if they are errors or not  
+
+```{r}
+summary(Data$MEANS_FROM_EMP)
+Data$MEANS_FROM_EMP <- scale(Data$MEANS_FROM_EMP)
+```
+
+They dont seem to be errors, however all values of zero are not frauds  
+We have also normalised the MEANS_FROM_EMP for any algorithms we use
+
+
+# Try Logistic Regression  
+
+Split into training and test sets (90/10)
+
+```{r}
+Data$MED_ASSESSMENT <- as.factor(Data$MED_ASSESSMENT)
+Data$MED_CONDITION_SATISFIED <- as.factor(Data$MED_CONDITION_SATISFIED)
+Data$NO_DEP <- as.factor(Data$NO_DEP)
+
+Data$MEANS_NEW <- ifelse(Data$MEANS_FROM_EMP <= mean(Data$MEANS_FROM_EMP),1,0)
+brks <- c(0,20,40,60)
+Data$DELAY_RANGE <- cut(Data$DELAY, breaks = brks, include.lowest = T)
+summary(Data$DELAY_RANGE )
+brks2 <- c(0,60,100,140)
+Data$FUEL_NEW <- cut(Data$FUEL_AMOUNT, breaks = brks2, include.lowest = T)
+summary(Data$FUEL_NEW)
+Data$NO_DEP2 <- ifelse(as.numeric(Data$NO_DEP) > 4,1,0)
+Data$NO_DEP2 <- as.factor(Data$NO_DEP2)
+
+
+Data$gp <- runif(dim(Data)[1])
+trainingSet <- subset(Data, Data$gp > 0.1)
+testSet <- subset(Data,Data$gp <= 0.1)
+```
+
+
+```{r}
+reg1 <- glm(FRAUD ~ MEANS_FROM_EMP + DELAY + NO_DEP +
+              FUEL_AMOUNT + MED_ASSESSMENT + MED_CONDITION_SATISFIED,
+            data = trainingSet, family =  binomial(link = 'logit'))
+summary(reg1)
+```
+
+There seems to be significance in all but one variable  
+
+
+Test Fit
+
+```{r}
+fit1 <- predict(reg1, newdata = testSet, type = 'response')
+fit1 <- ifelse(fit1 > 0.5,1,0)
+misClasificError1 <- mean(fit1 != testSet$FRAUD)
+print(paste('Accuracy',1-misClasificError1))
+```
+
+
+
+# Logistic Part 2
+
+Try and increase performance by using logit on redfined
+variables
+
+```{r}
+reg2 <- glm(FRAUD ~ MEANS_NEW + DELAY_RANGE + NO_DEP2 +
+              FUEL_NEW + MED_ASSESSMENT + MED_CONDITION_SATISFIED,
+            data = trainingSet, family =  binomial(link = 'logit'))
+summary(reg2)
+```
+
+Test Fit 
+
+```{r}
+fit <- predict(reg2, newdata = testSet, type = 'response')
+fit <- ifelse(fit> 0.5,1,0)
+
+misClasificError <- mean(fit != testSet$FRAUD)
+print(paste('Accuracy',1-misClasificError))
+```
+
+These variables dont have apppeared to make the model more  
+accuarte. Next we try Random Forests on the original set of variables.
+
+# Random Forest
+
+Next we wil try a randomforest wichi tend to perform well with this kind of problem  
+
+```{r}
+library(randomForest)
+set.seed(111)
+rf2 <- randomForest(as.factor(FRAUD) ~ MEANS_FROM_EMP + DELAY + NO_DEP +
+              FUEL_AMOUNT + MED_ASSESSMENT + MED_CONDITION_SATISFIED,
+                  data = trainingSet,
+                    importance = TRUE,
+                    ntree = 2000)
+varImpPlot(rf2)
+
+fit3 <- predict(rf2, newdata = testSet, type = 'response')
+misClasificError3 <- mean(fit3 != testSet$FRAUD)
+print(paste('Accuracy',1-misClasificError3))
+```
+
+Accuracy is the same as original Logistic
+
+Finally we perform a conditional random forest from the party package
+
+```{r}
+library(party)
+set.seed(333)
+rf1 <- cforest(as.factor(FRAUD) ~ MEANS_FROM_EMP + DELAY + NO_DEP +
+              FUEL_AMOUNT + MED_ASSESSMENT + MED_CONDITION_SATISFIED,
+                  data = trainingSet, 
+               controls=cforest_unbiased(ntree=2000, mtry=3))
+
+
+
+fit4 <- predict(rf1, newdata = testSet, type = 'response')
+misClasificError4 <- mean(fit4 != testSet$FRAUD)
+print(paste('Accuracy',1-misClasificError4))
+```
+
+It looks as though our original Logistic Regression
+is actually the most accurate on the tests set.  
+We can perform Cross validation to confirm.
+
+```{r}
+formula = as.factor(FRAUD) ~ MEANS_NEW + DELAY_RANGE + 
+                  NO_DEP2 + FUEL_NEW + MED_ASSESSMENT + 
+                  MED_CONDITION_SATISFIED
+library(caret)
+train_control <- trainControl(method = 'cv', number = 10)
+modelLog = train(formula, data=trainingSet, method="glm", family=binomial, 
+                 trControl=train_control)
+print(modelLog)
+```
+
+Try on RandomForest
+
+```{r}
+train_control2 <- trainControl(method = 'cv', number = 10)
+modelLog2 = train(formula, data=trainingSet, method="rf", 
+                 trControl=train_control)
+print(modelLog2)
+```
+
+
+accuarcy is very high so may be fitted.  
+Apply ridge regression to check  
+Argument alpha = 1 is for lasso, 0 is for ridge
+
+```{r}
+library(glmnet)
+x.m = data.matrix(trainingSet[,c(11,12,17,18,28,29)])
+y.m = trainingSet$FRAUD
+cvfit.m.ridge = cv.glmnet(x.m, y.m,
+                          family = "binomial", 
+                          alpha = 1,
+                          type.measure = "class")
+plot(cvfit.m.ridge, main = "Ridge")
+coef(cvfit.m.ridge, s = "lambda.min")
+
+pred2 = predict(cvfit.m.ridge, s = 'lambda.min',
+               newx = data.matrix(testSet[,c(11,12,17,18,28,29)]), 
+               type="class")
+
+misClasificError_ridge <- mean(pred2 != testSet$FRAUD)
+print(paste('Accuracy',1-misClasificError_ridge))
+```
+
+We get an improvement in accuracy if we apply regularisation via Ridge regression
