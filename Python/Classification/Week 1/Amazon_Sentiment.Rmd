@@ -1,0 +1,58 @@
+---
+title: "Amazon Reviews"
+author: "DFoly"
+date: "July 1, 2016"
+output: html_document
+---
+
+```{r}
+library(tm)
+Products <- read.csv("C:/Users/dfoley/Dropbox/Machine Learning/PythonCoursera/Classification/Week1/amazon_baby.csv", stringsAsFactors = FALSE)
+summary(Products)
+```
+
+We have three columns, name, review and rating.  
+First we must remove punctuation using the tm package  
+
+```{r}
+Products$review_clean <- removePunctuation(Products$review)
+review_text <- paste(Products$review_clean, collapse = ' ')
+review_source <- VectorSource(review_text)
+corpus <- Corpus(review_source)
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus,stripWhitespace)
+corpus <- tm_map(corpus,removeWords, stopwords('english'))
+dtm <- DocumentTermMatrix(corpus)
+dtm2 <- as.matrix(dtm)
+frequency <- colSums(dtm2)
+frequency_sort <- sort(frequency, decreasing = T)
+head(frequency)
+dim(frequency)
+freq <- data.frame()
+```
+
+
+Function to build word count vector  
+
+```{r}
+word.freq <- function(document.vector, sparsity = .999)
+{
+# construct corpus
+temp.corpus <- Corpus(VectorSource(document.vector))
+# construct tf matrix and remove sparse terms
+temp.tf <- DocumentTermMatrix(temp.corpus,
+control = list(stopwords = stopwords('english'),
+removeNumbers = T))
+temp.tf <- removeSparseTerms(temp.tf, sparsity)
+temp.tf <- as.matrix(temp.tf)
+# construct word frequency df
+freq.df <- colSums(temp.tf)
+freq.df <- data.frame(word = names(freq.df), freq = freq.df)
+rownames(freq.df) <- NULL
+return(freq.df)
+}
+
+word.freq.pos <- word.freq(Products$review_clean[Products$sentiment == 1])
+word.freq.neg <- word.freq(Products$review_clean[Products$sentiment == 0])
+```
+
